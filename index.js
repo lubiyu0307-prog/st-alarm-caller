@@ -1,7 +1,7 @@
 // ST鬧鐘呼叫 (st-alarm-caller)
 // 讓酒館角色可以在對話中「設鬧鐘」，透過 iOS 捷徑中轉建立 iPhone 鬧鐘。
 //
-// 架構對應原本 Brume 施工單的三部分：
+// 架構分成三部分：
 // 1) 系統規則注入：只有使用者明確要求時，角色才在回覆最後輸出 [[ALARM|HH:MM|名稱]]
 // 2) 訊息解析：從角色訊息中剝除該標記，正文正常顯示，另外把資訊存進 message.extra
 // 3) 鬧鐘卡片 UI：在該則訊息下方渲染卡片，點擊才呼叫 iOS 捷徑（符合 iOS 手勢觸發限制）
@@ -155,13 +155,17 @@ function buildAlarmUrl(time, label) {
 function buildCardElement(time, label) {
     const card = document.createElement("div");
     card.className = "st-alarm-card";
-    card.innerHTML = `
-        <div class="st-alarm-card-time">${time}</div>
-        <div class="st-alarm-card-label">${label}</div>
-        <div class="st-alarm-card-hint">${
-            isAndroid() ? "點一下設到手機" : "點一下設到 iPhone"
-        }</div>
-    `;
+    // 名稱來自模型輸出，一律用 textContent 塞入，避免被注入 HTML
+    const timeEl = document.createElement("div");
+    timeEl.className = "st-alarm-card-time";
+    timeEl.textContent = time;
+    const labelEl = document.createElement("div");
+    labelEl.className = "st-alarm-card-label";
+    labelEl.textContent = label;
+    const hintEl = document.createElement("div");
+    hintEl.className = "st-alarm-card-hint";
+    hintEl.textContent = isAndroid() ? "點一下設到手機" : "點一下設到 iPhone";
+    card.append(timeEl, labelEl, hintEl);
     card.addEventListener("click", () => {
         location.href = buildAlarmUrl(time, label);
     });
@@ -254,7 +258,7 @@ function buildSettingsPanel() {
                 <label>
                     iOS 捷徑名稱（僅 iPhone 需要，需與 Shortcuts App 內的捷徑名稱完全一致）
                     <input id="st-alarm-caller-shortcut-name" type="text"
-                        class="text_pole" value="${settings.shortcutName}" />
+                        class="text_pole" />
                 </label>
                 <div class="st-alarm-caller-install">
                     iPhone 使用者：還沒裝捷徑？
@@ -274,6 +278,10 @@ function buildSettingsPanel() {
         document.getElementById("extensions_settings2") ||
         document.getElementById("extensions_settings");
     container?.appendChild(panel);
+
+    // 名稱由使用者輸入，用 value 屬性設定而不是內插進 HTML
+    panel.querySelector("#st-alarm-caller-shortcut-name").value =
+        settings.shortcutName;
 
     panel
         .querySelector("#st-alarm-caller-enabled")
