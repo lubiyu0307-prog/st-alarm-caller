@@ -1,0 +1,245 @@
+// ST鬧鐘呼叫 (st-alarm-caller)
+// 讓酒館角色可以在對話中「設鬧鐘」，透過 iOS 捷徑中轉建立 iPhone 鬧鐘。
+//
+// 架構對應原本 Brume 施工單的三部分：
+// 1) 系統規則注入：只有使用者明確要求時，角色才在回覆最後輸出 [[ALARM|HH:MM|名稱]]
+// 2) 訊息解析：從角色訊息中剝除該標記，正文正常顯示，另外把資訊存進 message.extra
+// 3) 鬧鐘卡片 UI：在該則訊息下方渲染卡片，點擊才呼叫 iOS 捷徑（符合 iOS 手勢觸發限制）
+
+import { extension_settings, getContext } from "../../../extensions.js";
+import {
+    eventSource,
+    event_types,
+    saveSettingsDebounced,
+} from "../../../../script.js";
+
+const MODULE_NAME = "st-alarm-caller";
+
+const defaultSettings = {
+    enabled: true,
+    shortcutName: "ST鬧鐘呼叫", // 對應 iOS 捷徑名稱，需與實際捷徑名稱一致
+};
+
+// iOS 捷徑安裝連結（「ST鬧鐘呼叫」捷徑）
+const SHORTCUT_INSTALL_URL =
+    "https://www.icloud.com/shortcuts/162c14d3452247278cd2febcbeb86eba";
+
+// [[ALARM|HH:MM|名稱]]，允許前面有空白，且必須落在字串尾端
+const ALARM_REGEX = /\n?\[\[ALARM\|(\d{1,2}:\d{2})\|([^\[\]\|]{1,20})\]\]\s*$/;
+
+function getSettings() {
+    if (!extension_settings[MODULE_NAME]) {
+        extension_settings[MODULE_NAME] = structuredClone(defaultSettings);
+    }
+    for (const key of Object.keys(defaultSettings)) {
+        if (extension_settings[MODULE_NAME][key] === undefined) {
+            extension_settings[MODULE_NAME][key] = defaultSettings[key];
+        }
+    }
+    return extension_settings[MODULE_NAME];
+}
+
+function buildAlarmRule() {
+    return [
+        "【鬧鐘功能規則】",
+        "只有當使用者明確請你設定鬧鐘或提醒（例如「明天六點叫我起床」「等一下提醒我喝水」）時，才需要輸出鬧鐘標記；使用者沒有明確要求時，絕對不要輸出這個格式，也不要主動提議。",
+        "若使用者明確要求，請先用你自己的語氣正常回覆、答應對方，接著在整段回覆「最後另起一行」，只輸出一行如下格式的標記，不能有其他文字混在同一行：",
+        "[[ALARM|HH:MM|鬧鐘名稱]]",
+        "規則：",
+        "- 時間一律使用24小時制（HH:MM）",
+        "- 鬧鐘名稱由你依照自己的語氣與你平常對使用者的稱呼現場撰寫，需貼合用途（例如叫醒、提醒事項、休息、喝水吃飯等），限10字以內，不使用emoji，讀起來像一張你留在鬧鐘裡的小紙條",
+        "- 這一行必須是整段回覆的最後一行",
+        "- 絕對不要照抄任何範例文字，名稱必須是你當下用自己的口吻生成的",
+    ].join("\n");
+}
+
+function applyExtensionPrompt() {
+    const context = getContext();
+    const settings = getSettings();
+    // position: extension_prompt_types.IN_CHAT = 1, depth 0 表示插在最接近當前對話的位置
+    context.setExtensionPrompt(
+        MODULE_NAME,
+        settings.enabled ? buildAlarmRule() : "",
+        1,
+        0,
+        false,
+        0 // extension_prompt_roles.SYSTEM
+    );
+}
+
+// 暫存：訊息渲染前偵測到的鬧鐘資訊，key 為 messageId
+const pendingAlarms = new Map();
+
+function extractAlarmFromMessage(message) {
+    if (!message || message.is_user || typeof message.mes !== "string") {
+        return null;
+    }
+    const match = message.mes.match(ALARM_REGEX);
+    if (!match) return null;
+
+    const [fullMatch, time, label] = match;
+    // 從正文剝除標記，正文照常顯示
+    message.mes = message.mes.slice(0, match.index).trimEnd();
+
+    // 存進 message.extra，讓重新整理/切換分頁後仍能還原卡片
+    if (!message.extra) message.extra = {};
+    message.extra.stAlarmCard = { time, label };
+
+    return { time, label };
+}
+
+function isAndroid() {
+    return /android/i.test(navigator.userAgent);
+}
+
+function buildAlarmUrl(time, label) {
+    const [hourStr, minuteStr] = time.split(":");
+    if (isAndroid()) {
+        // Android：直接呼叫系統時鐘的 SET_ALARM intent，不需要任何額外 App
+        return (
+            "intent://alarm/#Intent;" +
+            "action=android.intent.action.SET_ALARM;" +
+            `i.android.intent.extra.alarm.HOUR=${parseInt(hourStr, 10)};` +
+            `i.android.intent.extra.alarm.MINUTES=${parseInt(minuteStr, 10)};` +
+            `S.android.intent.extra.alarm.MESSAGE=${encodeURIComponent(label)};` +
+            "end"
+        );
+    }
+    // iOS：透過捷徑中轉
+    const settings = getSettings();
+    const shortcutName = settings.shortcutName || defaultSettings.shortcutName;
+    return `shortcuts://run-shortcut?name=${encodeURIComponent(
+        shortcutName
+    )}&input=text&text=${encodeURIComponent(`${time}|${label}`)}`;
+}
+
+function buildCardElement(time, label) {
+    const card = document.createElement("div");
+    card.className = "st-alarm-card";
+    card.innerHTML = `
+        <div class="st-alarm-card-time">${time}</div>
+        <div class="st-alarm-card-label">${label}</div>
+        <div class="st-alarm-card-hint">${
+            isAndroid() ? "點一下設到手機" : "點一下設到 iPhone"
+        }</div>
+    `;
+    card.addEventListener("click", () => {
+        location.href = buildAlarmUrl(time, label);
+    });
+    return card;
+}
+
+function renderCardForMessageId(messageId, time, label) {
+    const messageBlock = document.querySelector(
+        `#chat .mes[mesid="${messageId}"] .mes_block .mes_text`
+    );
+    if (!messageBlock) return;
+    // 避免重複插入
+    if (messageBlock.parentElement.querySelector(".st-alarm-card")) return;
+    const card = buildCardElement(time, label);
+    messageBlock.insertAdjacentElement("afterend", card);
+}
+
+function onMessageReceived(messageId) {
+    const context = getContext();
+    const message = context.chat[messageId];
+    const result = extractAlarmFromMessage(message);
+    if (result) {
+        pendingAlarms.set(messageId, result);
+    }
+}
+
+function onCharacterMessageRendered(messageId) {
+    const pending = pendingAlarms.get(messageId);
+    if (pending) {
+        renderCardForMessageId(messageId, pending.time, pending.label);
+        pendingAlarms.delete(messageId);
+        return;
+    }
+    // 處理讀取舊聊天記錄時，訊息本身已存有 stAlarmCard 的情況
+    const context = getContext();
+    const message = context.chat[messageId];
+    const saved = message?.extra?.stAlarmCard;
+    if (saved) {
+        renderCardForMessageId(messageId, saved.time, saved.label);
+    }
+}
+
+function rescanChatForCards() {
+    const context = getContext();
+    if (!context.chat) return;
+    context.chat.forEach((message, messageId) => {
+        const saved = message?.extra?.stAlarmCard;
+        if (saved) {
+            renderCardForMessageId(messageId, saved.time, saved.label);
+        }
+    });
+}
+
+function buildSettingsPanel() {
+    const settings = getSettings();
+    const panel = document.createElement("div");
+    panel.id = "st-alarm-caller-settings";
+    panel.classList.add("st-alarm-caller-settings");
+    panel.innerHTML = `
+        <div class="inline-drawer">
+            <div class="inline-drawer-toggle inline-drawer-header">
+                <b>ST鬧鐘呼叫</b>
+                <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+            </div>
+            <div class="inline-drawer-content">
+                <label class="checkbox_label">
+                    <input id="st-alarm-caller-enabled" type="checkbox" ${
+                        settings.enabled ? "checked" : ""
+                    } />
+                    啟用鬧鐘功能
+                </label>
+                <label>
+                    iOS 捷徑名稱（僅 iPhone 需要，需與 Shortcuts App 內的捷徑名稱完全一致）
+                    <input id="st-alarm-caller-shortcut-name" type="text"
+                        class="text_pole" value="${settings.shortcutName}" />
+                </label>
+                <div class="st-alarm-caller-install">
+                    iPhone 使用者：還沒裝捷徑？
+                    <a href="${SHORTCUT_INSTALL_URL}" target="_blank" rel="noopener">
+                        點這裡安裝「ST鬧鐘呼叫」捷徑
+                    </a>
+                    <div class="st-alarm-caller-install-note">
+                        請在 iPhone 上開啟此連結安裝。第一次執行時 iOS 會詢問權限，按允許即可。<br>
+                        Android 使用者不需要安裝任何東西，點卡片會直接呼叫系統時鐘設鬧鐘。
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const container =
+        document.getElementById("extensions_settings2") ||
+        document.getElementById("extensions_settings");
+    container?.appendChild(panel);
+
+    panel
+        .querySelector("#st-alarm-caller-enabled")
+        .addEventListener("change", (e) => {
+            settings.enabled = e.target.checked;
+            saveSettingsDebounced();
+            applyExtensionPrompt();
+        });
+
+    panel
+        .querySelector("#st-alarm-caller-shortcut-name")
+        .addEventListener("change", (e) => {
+            settings.shortcutName = e.target.value.trim() || defaultSettings.shortcutName;
+            saveSettingsDebounced();
+        });
+}
+
+jQuery(async () => {
+    getSettings();
+    buildSettingsPanel();
+    applyExtensionPrompt();
+
+    eventSource.on(event_types.MESSAGE_RECEIVED, onMessageReceived);
+    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, onCharacterMessageRendered);
+    eventSource.on(event_types.CHAT_CHANGED, rescanChatForCards);
+});

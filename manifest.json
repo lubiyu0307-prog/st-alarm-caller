@@ -1,0 +1,12 @@
+{
+    "display_name": "ST鬧鐘呼叫",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Lubí",
+    "version": "1.0.0",
+    "homePage": "https://github.com/lubiyu0307-prog/st-alarm-caller",
+    "auto_update": true
+}

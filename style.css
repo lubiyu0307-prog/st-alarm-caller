@@ -1,0 +1,60 @@
+.st-alarm-card {
+    margin-top: 8px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    display: inline-flex;
+    flex-direction: column;
+    gap: 2px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    max-width: 240px;
+}
+
+.st-alarm-card:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.24);
+}
+
+.st-alarm-card:active {
+    transform: scale(0.98);
+}
+
+.st-alarm-card-time {
+    font-size: 1.4em;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.st-alarm-card-label {
+    font-size: 0.9em;
+    opacity: 0.85;
+}
+
+.st-alarm-card-hint {
+    font-size: 0.72em;
+    opacity: 0.5;
+    margin-top: 2px;
+}
+
+.st-alarm-caller-settings label {
+    display: block;
+    margin: 8px 0;
+}
+
+.st-alarm-caller-install {
+    margin: 10px 0 4px;
+    font-size: 0.88em;
+}
+
+.st-alarm-caller-install a {
+    text-decoration: underline;
+}
+
+.st-alarm-caller-install-note {
+    font-size: 0.8em;
+    opacity: 0.6;
+    margin-top: 4px;
+    line-height: 1.5;
+}
