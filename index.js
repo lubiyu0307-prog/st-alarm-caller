@@ -14,6 +14,7 @@ import {
 } from "../../../../script.js";
 
 const MODULE_NAME = "st-alarm-caller";
+const VERSION = "1.2.1";
 
 const defaultSettings = {
     enabled: true,
@@ -204,7 +205,7 @@ function buildSettingsPanel() {
     panel.innerHTML = `
         <div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>ST鬧鐘呼叫</b>
+                <b>ST鬧鐘呼叫 <small>v${VERSION}</small></b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
