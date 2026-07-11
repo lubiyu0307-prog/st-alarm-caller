@@ -14,7 +14,7 @@ import {
 } from "../../../../script.js";
 
 const MODULE_NAME = "st-alarm-caller";
-const VERSION = "1.2.1";
+const VERSION = "1.3.0";
 
 const defaultSettings = {
     enabled: true,
@@ -99,14 +99,32 @@ function extractAlarmFromMessage(message) {
 
     const [fullMatch, rawTime, label] = match;
     const time = rawTime.replace("：", ":");
+
+    // 記下標記前最後一行正文當「錨點」，渲染時把卡片插在該段劇情正下方
+    const anchor = buildAnchor(message.mes.slice(0, match.index));
+
     // 從正文剝除標記（標記可能在訊息中間，例如角色卡結尾有狀態欄），正文照常顯示
     message.mes = message.mes.replace(fullMatch, "").replace(/\n{3,}/g, "\n\n").trim();
 
     // 存進 message.extra，讓重新整理/切換分頁後仍能還原卡片
     if (!message.extra) message.extra = {};
-    message.extra.stAlarmCard = { time, label };
+    message.extra.stAlarmCard = { time, label, anchor };
 
-    return { time, label };
+    return { time, label, anchor };
+}
+
+// 取標記前最後一行非空白文字，去掉 markdown 符號後留尾端片段，
+// 用來在渲染後的 HTML 中定位「設鬧鐘那段劇情」
+function buildAnchor(textBeforeMarker) {
+    const lines = textBeforeMarker
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+    if (!lines.length) return "";
+    return lines[lines.length - 1]
+        .replace(/[*_~`>#"'「」『』\[\]]/g, "")
+        .replace(/\s+/g, "")
+        .slice(-20);
 }
 
 function isAndroid() {
@@ -150,14 +168,32 @@ function buildCardElement(time, label) {
     return card;
 }
 
-function renderCardForMessageId(messageId, time, label) {
+function renderCardForMessageId(messageId, time, label, anchor) {
     const messageBlock = document.querySelector(
         `#chat .mes[mesid="${messageId}"] .mes_block .mes_text`
     );
     if (!messageBlock) return;
-    // 避免重複插入
-    if (messageBlock.parentElement.querySelector(".st-alarm-card")) return;
+    // 避免重複插入（卡片可能在 .mes_text 內部或後方）
+    const mesRoot = messageBlock.closest(".mes") || messageBlock.parentElement;
+    if (mesRoot.querySelector(".st-alarm-card")) return;
     const card = buildCardElement(time, label);
+
+    // 依錨點找到「設鬧鐘那段劇情」的段落，把卡片插在它正下方
+    if (anchor) {
+        const paragraphs = messageBlock.querySelectorAll(
+            "p, li, blockquote, pre, h1, h2, h3, h4"
+        );
+        let target = null;
+        for (const el of paragraphs) {
+            const text = (el.textContent || "").replace(/\s+/g, "");
+            if (text.includes(anchor)) target = el; // 取最後一個符合的段落
+        }
+        if (target) {
+            target.insertAdjacentElement("afterend", card);
+            return;
+        }
+    }
+    // 找不到錨點時退回原本的置底
     messageBlock.insertAdjacentElement("afterend", card);
 }
 
@@ -173,7 +209,7 @@ function onMessageReceived(messageId) {
 function onCharacterMessageRendered(messageId) {
     const pending = pendingAlarms.get(messageId);
     if (pending) {
-        renderCardForMessageId(messageId, pending.time, pending.label);
+        renderCardForMessageId(messageId, pending.time, pending.label, pending.anchor);
         pendingAlarms.delete(messageId);
         return;
     }
@@ -182,7 +218,7 @@ function onCharacterMessageRendered(messageId) {
     const message = context.chat[messageId];
     const saved = message?.extra?.stAlarmCard;
     if (saved) {
-        renderCardForMessageId(messageId, saved.time, saved.label);
+        renderCardForMessageId(messageId, saved.time, saved.label, saved.anchor);
     }
 }
 
@@ -192,7 +228,7 @@ function rescanChatForCards() {
     context.chat.forEach((message, messageId) => {
         const saved = message?.extra?.stAlarmCard;
         if (saved) {
-            renderCardForMessageId(messageId, saved.time, saved.label);
+            renderCardForMessageId(messageId, saved.time, saved.label, saved.anchor);
         }
     });
 }
