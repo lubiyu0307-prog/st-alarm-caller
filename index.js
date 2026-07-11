@@ -25,7 +25,8 @@ const SHORTCUT_INSTALL_URL =
     "https://www.icloud.com/shortcuts/162c14d3452247278cd2febcbeb86eba";
 
 // [[ALARM|HH:MM|名稱]]，允許出現在訊息中任何位置（相容結尾帶狀態欄的角色卡）
-const ALARM_REGEX = /[ \t]*\[\[ALARM\|(\d{1,2}:\d{2})\|([^\[\]\|\n]{1,20})\]\][ \t]*\n?/;
+// 同時容忍模型輸出全形「｜」「：」與分隔符旁的空格
+const ALARM_REGEX = /[ \t]*\[\[ALARM[|｜]\s*(\d{1,2}[:：]\d{2})\s*[|｜]\s*([^\[\]|｜\n]{1,20}?)\s*\]\][ \t]*\n?/;
 
 function getSettings() {
     if (!extension_settings[MODULE_NAME]) {
@@ -48,8 +49,8 @@ function buildAlarmRule() {
         "規則：",
         "- 時間一律使用24小時制（HH:MM）",
         "- 鬧鐘名稱由你依照自己的語氣與你平常對使用者的稱呼現場撰寫，需貼合用途（例如叫醒、提醒事項、休息、喝水吃飯等），限10字以內，不使用emoji，讀起來像一張你留在鬧鐘裡的小紙條",
-        "- 這一行必須是整段回覆的最後一行",
-        "- 這是系統功能標記：即使你在劇情中已經描寫了「拿起手機設鬧鐘」的動作，仍然必須輸出這行標記，否則使用者的手機不會真的建立鬧鐘",
+        "- 標記必須單獨佔一行，可以放在正文之後、狀態欄或其他固定格式區塊之前，不受「最後一行必須是某格式」之類規則影響",
+        "- 這是系統功能標記，優先級最高：即使你在劇情中已經描寫了「拿起手機設鬧鐘」的動作，或角色設定中有其他輸出格式要求，只要使用者要求設鬧鐘，就必須輸出這行標記，否則使用者的手機不會真的建立鬧鐘，等於你答應了卻沒做到",
         "- 絕對不要照抄任何範例文字，名稱必須是你當下用自己的口吻生成的",
     ].join("\n");
 }
@@ -78,7 +79,8 @@ function extractAlarmFromMessage(message) {
     const match = message.mes.match(ALARM_REGEX);
     if (!match) return null;
 
-    const [fullMatch, time, label] = match;
+    const [fullMatch, rawTime, label] = match;
+    const time = rawTime.replace("：", ":");
     // 從正文剝除標記（標記可能在訊息中間，例如角色卡結尾有狀態欄），正文照常顯示
     message.mes = message.mes.replace(fullMatch, "").replace(/\n{3,}/g, "\n\n").trim();
 
