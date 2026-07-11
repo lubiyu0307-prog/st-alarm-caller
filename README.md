@@ -45,3 +45,9 @@
   略有不同，但視覺效果一樣是「一張獨立卡片」。
 - 目前沒有做重複呼叫防呆（同一張卡片可以一直點、一直觸發捷徑），如果之後想加
   「已設定」狀態鎖住卡片，可以再跟我說。
+
+## 授權 License
+
+本專案採用 [PolyForm Noncommercial License 1.0.0](./LICENSE)：
+歡迎自由使用、修改、合併、散佈，但**僅限非商業用途**。
+Free to use, modify, and redistribute for **noncommercial purposes only**.
