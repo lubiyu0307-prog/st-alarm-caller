@@ -69,6 +69,23 @@ function applyExtensionPrompt() {
     );
 }
 
+// 聊天補全（OpenAI/Gemini/Claude 等 Chat Completion API）專用的保險注入：
+// 在 prompt 組裝完成、即將送出的時刻，直接把規則塞進訊息列表結尾，
+// 不依賴 setExtensionPrompt 的注入管線
+function onChatCompletionPromptReady(eventData) {
+    if (eventData.dryRun) return;
+    if (!getSettings().enabled) return;
+    if (!Array.isArray(eventData.chat)) return;
+    // setExtensionPrompt 那條路已經注入的話就不重複塞
+    const alreadyInjected = eventData.chat.some(
+        (msg) =>
+            typeof msg?.content === "string" &&
+            msg.content.includes("【鬧鐘功能規則】")
+    );
+    if (alreadyInjected) return;
+    eventData.chat.push({ role: "system", content: buildAlarmRule() });
+}
+
 // 暫存：訊息渲染前偵測到的鬧鐘資訊，key 為 messageId
 const pendingAlarms = new Map();
 
@@ -244,5 +261,14 @@ jQuery(async () => {
 
     eventSource.on(event_types.MESSAGE_RECEIVED, onMessageReceived);
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, onCharacterMessageRendered);
-    eventSource.on(event_types.CHAT_CHANGED, rescanChatForCards);
+    eventSource.on(event_types.CHAT_CHANGED, () => {
+        // 切換聊天時重新注入，避免規則被其他流程清掉
+        applyExtensionPrompt();
+        rescanChatForCards();
+    });
+    // 聊天補全 API 的保險注入（Gemini/OpenAI/Claude 等走這條）
+    eventSource.on(
+        event_types.CHAT_COMPLETION_PROMPT_READY,
+        onChatCompletionPromptReady
+    );
 });
