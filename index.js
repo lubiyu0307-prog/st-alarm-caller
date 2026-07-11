@@ -24,8 +24,8 @@ const defaultSettings = {
 const SHORTCUT_INSTALL_URL =
     "https://www.icloud.com/shortcuts/162c14d3452247278cd2febcbeb86eba";
 
-// [[ALARM|HH:MM|名稱]]，允許前面有空白，且必須落在字串尾端
-const ALARM_REGEX = /\n?\[\[ALARM\|(\d{1,2}:\d{2})\|([^\[\]\|]{1,20})\]\]\s*$/;
+// [[ALARM|HH:MM|名稱]]，允許出現在訊息中任何位置（相容結尾帶狀態欄的角色卡）
+const ALARM_REGEX = /[ \t]*\[\[ALARM\|(\d{1,2}:\d{2})\|([^\[\]\|\n]{1,20})\]\][ \t]*\n?/;
 
 function getSettings() {
     if (!extension_settings[MODULE_NAME]) {
@@ -43,12 +43,13 @@ function buildAlarmRule() {
     return [
         "【鬧鐘功能規則】",
         "只有當使用者明確請你設定鬧鐘或提醒（例如「明天六點叫我起床」「等一下提醒我喝水」）時，才需要輸出鬧鐘標記；使用者沒有明確要求時，絕對不要輸出這個格式，也不要主動提議。",
-        "若使用者明確要求，請先用你自己的語氣正常回覆、答應對方，接著在整段回覆「最後另起一行」，只輸出一行如下格式的標記，不能有其他文字混在同一行：",
+        "若使用者明確要求，請先用你自己的語氣正常回覆、答應對方，接著在正文結束後「另起一行」，單獨輸出一行如下格式的標記（若你的回覆結尾有狀態欄或其他固定格式區塊，標記放在正文與該區塊之間）：",
         "[[ALARM|HH:MM|鬧鐘名稱]]",
         "規則：",
         "- 時間一律使用24小時制（HH:MM）",
         "- 鬧鐘名稱由你依照自己的語氣與你平常對使用者的稱呼現場撰寫，需貼合用途（例如叫醒、提醒事項、休息、喝水吃飯等），限10字以內，不使用emoji，讀起來像一張你留在鬧鐘裡的小紙條",
         "- 這一行必須是整段回覆的最後一行",
+        "- 這是系統功能標記：即使你在劇情中已經描寫了「拿起手機設鬧鐘」的動作，仍然必須輸出這行標記，否則使用者的手機不會真的建立鬧鐘",
         "- 絕對不要照抄任何範例文字，名稱必須是你當下用自己的口吻生成的",
     ].join("\n");
 }
@@ -78,8 +79,8 @@ function extractAlarmFromMessage(message) {
     if (!match) return null;
 
     const [fullMatch, time, label] = match;
-    // 從正文剝除標記，正文照常顯示
-    message.mes = message.mes.slice(0, match.index).trimEnd();
+    // 從正文剝除標記（標記可能在訊息中間，例如角色卡結尾有狀態欄），正文照常顯示
+    message.mes = message.mes.replace(fullMatch, "").replace(/\n{3,}/g, "\n\n").trim();
 
     // 存進 message.extra，讓重新整理/切換分頁後仍能還原卡片
     if (!message.extra) message.extra = {};
